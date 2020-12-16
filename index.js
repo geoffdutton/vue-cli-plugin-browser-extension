@@ -20,6 +20,10 @@ const performanceAssetFilterList = [
 
 module.exports = (api, options) => {
   const appRootPath = api.getCwd()
+  if (options.pluginOptions.browserExtension === false) {
+    logger.info('Skipping browser-extension plugin.')
+    return
+  }
   const pluginOptions = options.pluginOptions.browserExtension
     ? Object.assign(defaultOptions, options.pluginOptions.browserExtension)
     : defaultOptions
@@ -57,15 +61,22 @@ module.exports = (api, options) => {
   api.chainWebpack((webpackConfig) => {
     const isLegacyBundle = process.env.VUE_CLI_MODERN_MODE && !process.env.VUE_CLI_MODERN_BUILD
     // Ignore rewriting names for background and content scripts
-    webpackConfig.output.filename((file) =>
-      `js/[name]${isLegacyBundle ? `-legacy` : ``}${isProduction && options.filenameHashing && !userScripts.includes(file.chunk.name) ? '.[contenthash:8]' : ''}.js`
+    webpackConfig.output.filename(
+      (file) =>
+        `js/[name]${isLegacyBundle ? `-legacy` : ``}${
+          isProduction && options.filenameHashing && !userScripts.includes(file.chunk.name) ? '.[contenthash:8]' : ''
+        }.js`
     )
     webpackConfig.merge({ entry })
 
+    let manifestPath = './src/manifest.json'
+    if (pluginOptions.manifestPath) {
+      manifestPath = api.resolve(pluginOptions.manifestPath)
+    }
     webpackConfig.plugin('copy-manifest').use(CopyWebpackPlugin, [
       [
         {
-          from: './src/manifest.json',
+          from: manifestPath,
           to: 'manifest.json',
           transform: manifestTransformer(api, pluginOptions, packageJson)
         }
@@ -115,7 +126,7 @@ module.exports = (api, options) => {
     }
 
     if (webpackConfig.plugins.has('copy')) {
-      webpackConfig.plugin('copy').tap(args => {
+      webpackConfig.plugin('copy').tap((args) => {
         args[0][0].ignore.push('browser-extension.html')
         return args
       })
@@ -124,7 +135,11 @@ module.exports = (api, options) => {
 
   api.configureWebpack((webpackConfig) => {
     const omitUserScripts = ({ name }) => !userScripts.includes(name)
-    if (webpackConfig.optimization && webpackConfig.optimization.splitChunks && webpackConfig.optimization.splitChunks.cacheGroups) {
+    if (
+      webpackConfig.optimization &&
+      webpackConfig.optimization.splitChunks &&
+      webpackConfig.optimization.splitChunks.cacheGroups
+    ) {
       if (webpackConfig.optimization.splitChunks.cacheGroups.vendors) {
         webpackConfig.optimization.splitChunks.cacheGroups.vendors.chunks = omitUserScripts
       }
